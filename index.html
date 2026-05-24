@@ -622,9 +622,9 @@
                         <tr>
                             <th>Categoría</th>
                             <th>Deuda Vencida</th>
-                            <th>Deuda Por Vencer</th>
+                            <th>Deuda Por Vencer (Año)</th>
                             <th style="background-color: #fcfcfc;">Deuda Activa Total</th>
-                            <th style="background-color: #eafaf1; color:#2ecc71;">Total Pagado</th>
+                            <th style="background-color: #eafaf1; color:#2ecc71;">Total Pagado (Año)</th>
                         </tr>
                     </thead>
                     <tbody id="categoria-body"></tbody>
@@ -644,9 +644,9 @@
                         <tr>
                             <th>Proveedor</th>
                             <th>Deuda Vencida</th>
-                            <th>Deuda Por Vencer</th>
+                            <th>Deuda Por Vencer (Año)</th>
                             <th style="background-color: #ecf0f1;">Deuda Activa Total</th>
-                            <th>Total Pagado Histórico</th>
+                            <th>Total Pagado (Año)</th>
                         </tr>
                     </thead>
                     <tbody id="list-resumen"></tbody>
@@ -783,6 +783,12 @@
             today.setHours(0,0,0,0);
 
             let provActiveDeudaMap = {};
+            let acumulado_anual_proveedores = {};
+            let acumulado_anual_categorias = {};
+            let pagado_anual_proveedores = {};
+            let pagado_anual_categorias = {};
+            let vencer_anual_proveedores = {};
+            let vencer_anual_categorias = {};
 
             // Primera pasada rápida de totales por proveedor
             for(let i = headerRowIndex + 1; i < rows.length; i++) {
@@ -900,14 +906,23 @@
                     if(filterMonth !== 'All' && String(m) !== String(filterMonth)) matchesMonth = false;
                 } else { if(filterYear !== 'All' || filterMonth !== 'All') { matchesYear = false; matchesMonth = false; } }
 
+                let matchesEmissionYear = true;
+                if (filterYear !== 'All') {
+                    if (eDate && String(eDate.getFullYear()) === String(filterYear)) {
+                        matchesEmissionYear = true;
+                    } else {
+                        matchesEmissionYear = false;
+                    }
+                }
+
                 if (matchesYear) {
                     if (estado === 'VENCIDA') accum_vencida += monto;
                     else if (estado === 'POR VENCER' || estado === 'POR PAGAR') accum_vencer += monto;
-                    else if (estado === 'PAGADO') accum_pagado += monto;
+                    else if (estado === 'PAGADO') {
+                        accum_pagado += monto;
+                    }
                 }
-
-                if (!matchesYear || !matchesMonth) continue;
-
+                
                 let diffDays = vDate ? Math.ceil((vDate - today) / (1000 * 60 * 60 * 24)) : null;
                 let record = { proveedor, folio, monto, eDate, vDate, diffDays, estado };
 
@@ -920,14 +935,41 @@
                 if(!facturasPorProveedorMap[proveedor]) {
                     facturasPorProveedorMap[proveedor] = [];
                 }
-                facturasPorProveedorMap[proveedor].push(record);
+
+                if (matchesEmissionYear) {
+                    if (estado === 'PAGADO') {
+                        if(!pagado_anual_proveedores[proveedor]) pagado_anual_proveedores[proveedor] = 0;
+                        if(!pagado_anual_categorias[categoria]) pagado_anual_categorias[categoria] = 0;
+                        pagado_anual_proveedores[proveedor] += monto;
+                        pagado_anual_categorias[categoria] += monto;
+                    } else if (estado === 'POR VENCER' || estado === 'POR PAGAR') {
+                        if(!vencer_anual_proveedores[proveedor]) vencer_anual_proveedores[proveedor] = 0;
+                        if(!vencer_anual_categorias[categoria]) vencer_anual_categorias[categoria] = 0;
+                        vencer_anual_proveedores[proveedor] += monto;
+                        vencer_anual_categorias[categoria] += monto;
+                    }
+                    
+                    if(!acumulado_anual_proveedores[proveedor]) acumulado_anual_proveedores[proveedor] = 0;
+                    if(!acumulado_anual_categorias[categoria]) acumulado_anual_categorias[categoria] = 0;
+                    
+                    acumulado_anual_proveedores[proveedor] += monto;
+                    acumulado_anual_categorias[categoria] += monto;
+                }
+
+                // Push to accordion details if they match the Yearly math logic OR the Monthly Vencida logic
+                if ((estado === 'VENCIDA' && matchesYear && matchesMonth) || 
+                    ((estado === 'PAGADO' || estado === 'POR VENCER' || estado === 'POR PAGAR') && matchesEmissionYear)) {
+                    facturasPorProveedorMap[proveedor].push(record);
+                    resumen_categorias[categoria].facturas.push(record);
+                }
+
+                if (!matchesYear || !matchesMonth) continue;
 
                 if(estado === 'VENCIDA') {
                     d_vencida += monto;
                     proveedores_map[proveedor] = (proveedores_map[proveedor] || 0) + monto;
                     resumen_proveedores[proveedor].vencida += monto;
                     resumen_categorias[categoria].vencida += monto;
-                    resumen_categorias[categoria].facturas.push(record);
                     arr_vencidas.push(record);
                     arr_activa.push(record);
                     
@@ -937,7 +979,6 @@
                     d_vencer += monto;
                     resumen_proveedores[proveedor].por_vencer += monto;
                     resumen_categorias[categoria].por_vencer += monto;
-                    resumen_categorias[categoria].facturas.push(record);
                     arr_vencer.push(record);
                     arr_activa.push(record);
                     if(diffDays !== null && diffDays >= 0 && diffDays <= 15) {
@@ -947,7 +988,6 @@
                     d_pagado += monto;
                     resumen_proveedores[proveedor].pagado += monto;
                     resumen_categorias[categoria].pagado += monto; 
-                    resumen_categorias[categoria].facturas.push(record); 
                     arr_pagadas.push(record);
                 }
             }
@@ -957,20 +997,35 @@
             // ==========================================
             let resumenArray = Object.keys(resumen_proveedores).map(p => {
                 let d = resumen_proveedores[p];
-                return { nombre: p, vencida: d.vencida, por_vencer: d.por_vencer, pagado: d.pagado, deudaTotal: d.vencida + d.por_vencer };
-            }).filter(p => p.deudaTotal > 0 || p.pagado > 0);
-            resumenArray.sort((a, b) => b.deudaTotal - a.deudaTotal);
+                let pagado_anio = pagado_anual_proveedores[p] || 0;
+                let vencer_anio = vencer_anual_proveedores[p] || d.por_vencer;
+                return { nombre: p, vencida: d.vencida, por_vencer: vencer_anio, pagado_filtro: d.pagado, pagado_anio: pagado_anio, deudaTotal: d.vencida + vencer_anio };
+            }).filter(p => p.deudaTotal > 0 || p.pagado_anio > 0);
+            
+            resumenArray.sort((a, b) => {
+                let invsA = facturasPorProveedorMap[a.nombre] || [];
+                let vA = invsA.filter(i => i.estado === 'VENCIDA');
+                let minDateA = vA.length > 0 ? Math.min(...vA.map(i => i.vDate || Infinity)) : Infinity;
+                
+                let invsB = facturasPorProveedorMap[b.nombre] || [];
+                let vB = invsB.filter(i => i.estado === 'VENCIDA');
+                let minDateB = vB.length > 0 ? Math.min(...vB.map(i => i.vDate || Infinity)) : Infinity;
+                
+                if (minDateA !== minDateB) return minDateA - minDateB;
+                return b.deudaTotal - a.deudaTotal;
+            });
 
             let resumenHtml = '';
             if (resumenArray.length > 0) {
                 resumenArray.forEach(p => {
                     let pName = p.nombre.length > 30 ? p.nombre.substring(0, 27) + '...' : p.nombre;
+                    let totalAcumulado = acumulado_anual_proveedores[p.nombre] || (p.deudaTotal + p.pagado);
                     resumenHtml += `<tr class="group-header" onclick="toggleGroup(this)">
-                        <td title="${p.nombre}"><span class="chevron">▶</span> <b>${pName}</b></td>
+                        <td title="${p.nombre}"><span class="chevron">▶</span> <b>${pName}</b> <span class="group-info-text">| Acumulado del Año: <b>${formatCurrency(totalAcumulado)}</b></span></td>
                         <td class="col-vencida">${p.vencida > 0 ? formatCurrency(p.vencida) : '-'}</td>
                         <td class="col-vencer">${p.por_vencer > 0 ? formatCurrency(p.por_vencer) : '-'}</td>
                         <td class="col-total">${p.deudaTotal > 0 ? formatCurrency(p.deudaTotal) : '-'}</td>
-                        <td class="col-pagado">${p.pagado > 0 ? formatCurrency(p.pagado) : '-'}</td>
+                        <td class="col-pagado">${p.pagado_anio > 0 ? formatCurrency(p.pagado_anio) : '-'}</td>
                     </tr>`;
                     
                     let invList = facturasPorProveedorMap[p.nombre] || [];
@@ -1010,20 +1065,24 @@
             // ==========================================
             let catArray = Object.keys(resumen_categorias).map(c => {
                 let d = resumen_categorias[c];
-                return { nombre: c, vencida: d.vencida, por_vencer: d.por_vencer, pagado: d.pagado, deudaTotal: d.vencida + d.por_vencer };
-            }).filter(c => c.deudaTotal > 0 || c.pagado > 0);
-            catArray.sort((a, b) => b.deudaTotal - a.deudaTotal);
+                let pagado_anio = pagado_anual_categorias[c] || 0;
+                let vencer_anio = vencer_anual_categorias[c] || d.por_vencer;
+                let totalAcumulado = acumulado_anual_categorias[c] || (d.vencida + vencer_anio + d.pagado);
+                return { nombre: c, vencida: d.vencida, por_vencer: vencer_anio, pagado_filtro: d.pagado, pagado_anio: pagado_anio, deudaTotal: d.vencida + vencer_anio, totalAcumulado: totalAcumulado };
+            }).filter(c => c.deudaTotal > 0 || c.pagado_anio > 0);
+            catArray.sort((a, b) => b.totalAcumulado - a.totalAcumulado);
             
             let catHtml = '';
             if (catArray.length > 0) {
                 catArray.forEach(c => {
                     let targetCat = resumen_categorias[c.nombre];
+                    let totalAcumuladoCat = acumulado_anual_categorias[c.nombre] || (c.deudaTotal + c.pagado);
                     catHtml += `<tr class="group-header" onclick="toggleGroup(this)">
-                        <td><span class="chevron">▶</span> <b>${c.nombre}</b></td>
+                        <td><span class="chevron">▶</span> <b>${c.nombre}</b> <span class="group-info-text">| Acumulado del Año: <b>${formatCurrency(totalAcumuladoCat)}</b></span></td>
                         <td class="col-vencida">${c.vencida > 0 ? formatCurrency(c.vencida) : '-'}</td>
                         <td class="col-vencer">${c.por_vencer > 0 ? formatCurrency(c.por_vencer) : '-'}</td>
                         <td class="col-total">${c.deudaTotal > 0 ? formatCurrency(c.deudaTotal) : '-'}</td>
-                        <td class="col-pagado">${c.pagado > 0 ? formatCurrency(c.pagado) : '-'}</td>
+                        <td class="col-pagado">${c.pagado_anio > 0 ? formatCurrency(c.pagado_anio) : '-'}</td>
                     </tr>`;
                     
                     targetCat.facturas.sort((a, b) => {
