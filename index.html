@@ -1060,12 +1060,13 @@
                 
                 let rowStyle = a.estado === 'VENCIDA' ? 'style="background-color: #fff1f1;"' : '';
                 let montoClass = a.estado === 'VENCIDA' ? 'class="col-vencida"' : 'class="col-vencer"';
+                let pName = a.proveedor.length > 30 ? a.proveedor.substring(0, 27) + '...' : a.proveedor;
 
                 return `<tr ${rowStyle}>
                     <td>${badge}</td>
                     <td>${formatDate(a.vDate)}</td>
                     <td ${montoClass}><b>${formatCurrency(a.monto)}</b></td>
-                    <td>${a.proveedor}</td>
+                    <td title="${a.proveedor}">${pName}</td>
                     <td>${formatDate(a.eDate)}</td>
                     <td>${a.folio}</td>
                 </tr>`;
